@@ -1,0 +1,28 @@
+name: Zig CI - test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        # mlugg/setup-zig installs Zig and caches the download. See readme.
+        uses: mlugg/setup-zig@v2
+        with:
+          # Use 'latest' (latest stable) or 'master' (latest nightly).
+          # To pin a specific dev build use the full nightly string (e.g. "0.16.0-dev.1220+95c76b1b4")
+          version: latest
+
+      - name: Print Zig version
+        run: zig version
+
+      - name: Run tests
+        run: zig build test --debug-rt --summary all
