@@ -276,7 +276,7 @@ pub const Vztor = struct {
 
         for (0..input_length) |i| {
             // Numeric index key -> string
-            var numeric_buf: [32]u8 = undefined;
+            var numeric_buf: [32]u8 align(4) = undefined;
             const numericSKey = try std.fmt.bufPrint(&numeric_buf, "{d}", .{ numKeys[i] });
 
             // Build "pos:key" using the same stable allocator.
@@ -303,7 +303,7 @@ pub const Vztor = struct {
         const numericKey = utils.stringToId32(key, self.seed);
 
         // Use a small stack buffer for printing the numeric key (no heap alloc)
-        var num_buf: [32]u8 = undefined;
+        var num_buf: [32]u8 align(4) = undefined;
         const numberSkey = try std.fmt.bufPrint(&num_buf, "{d}", .{ numericKey });
 
         const txn = try lmdbx.Transaction.init(self.env, .{ .mode = .ReadOnly });
@@ -361,7 +361,7 @@ pub const Vztor = struct {
         const db_index_to_key = try txn.database("index_to_key", .{});
 
         // stack buffer for numeric key formatting (reused each iteration)
-        var num_buf: [32]u8 = undefined;
+        var num_buf: [32]u8 align(4) = undefined;
 
         for (0..knn_result.used) |i| {
             const id = knn_result.ids[i];
