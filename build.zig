@@ -10,8 +10,10 @@ pub fn build(b: *std.Build) void {
     // Dependencies
     // ------------------------------------------------------------
     const nmslib_dep = b.dependency("nmslib", .{
+        .target = target,
     });
     const lmdbx_dep  = b.dependency("lmdbx",  .{
+        .target = target,
     });
 
     // ------------------------------------------------------------
