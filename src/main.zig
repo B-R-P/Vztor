@@ -19,7 +19,7 @@ const searchResult = struct {
 };
 
 
-pub const VStore = struct {
+pub const Vztor = struct {
     const Self = @This();
 
     arena: std.heap.ArenaAllocator,
@@ -182,7 +182,7 @@ pub const VStore = struct {
         // Commit setup transaction; DB and txn handles go out of scope here
         try txn.commit();
 
-        // Store everything into VStore
+        // Store everything into Vztor
         store.env = env;
         store.rnd = rnd;
         store.counter = counter;
@@ -289,7 +289,7 @@ pub const VStore = struct {
 
         try txn.commit();
 
-        // Return keys that were allocated with stable_alloc (owned by VStore)
+        // Return keys that were allocated with stable_alloc (owned by Vztor)
         return nnkeys;
     }
 
@@ -346,7 +346,7 @@ pub const VStore = struct {
 
     fn search(self: *Self, vector: nmslib.QueryPoint, k: usize) ![]searchResult {
         
-        // Stable allocator for returned results (owned by VStore)
+        // Stable allocator for returned results (owned by Vztor)
         const stable_alloc = self.arena.allocator();
 
         const knn_result = try self.index.knnQuery(vector, k);
@@ -426,7 +426,7 @@ pub fn main() !void {
     const dist_type = nmslib.DistType.Float;
     std.debug.assert(nmslib.isValidSpaceType(space_type));
 
-    var store = try VStore.init(allocator, db_path, space_type, vector_type, dist_type, max_readers);
+    var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, max_readers);
     defer store.deinit() catch unreachable;
 
     
@@ -452,8 +452,8 @@ pub fn main() !void {
 
 
 
-test "VStore: basic put/get/save and reload" {
-    std.debug.print("[ ] VStore: basic put/get/save and reload\n", .{});
+test "Vztor: basic put/get/save and reload" {
+    std.debug.print("[ ] Vztor: basic put/get/save and reload\n", .{});
 
     const allocator = std.heap.page_allocator;
     const db_path = "testdb_vstore_zigtest";
@@ -462,7 +462,7 @@ test "VStore: basic put/get/save and reload" {
     const dist_type = nmslib.DistType.Float;
 
     // Initialize the store
-    var store = try VStore.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
 
     // Prepare two sparse vectors and payloads
     const vectors = [_][]const nmslib.SparseElem{
@@ -498,7 +498,7 @@ test "VStore: basic put/get/save and reload" {
     try store.deinit();
 
     // Re-open the store from the same path (index should be loaded from disk)
-    var reopened = try VStore.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    var reopened = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
 
     // Re-fetch using the copied key (not owned by the arena)
     const got2 = try reopened.batchGet(key_copy);
@@ -512,13 +512,13 @@ test "VStore: basic put/get/save and reload" {
     const cwd = std.fs.cwd();
     cwd.deleteTree(db_path) catch {};
 
-    std.debug.print("[x] VStore: basic put/get/save and reload\n", .{});
+    std.debug.print("[x] Vztor: basic put/get/save and reload\n", .{});
 }
 
 
 
-test "VStore: batchPut returns unique keys on repeated insert" {
-    std.debug.print("[ ] VStore: batchPut returns unique keys on repeated insert\n", .{});
+test "Vztor: batchPut returns unique keys on repeated insert" {
+    std.debug.print("[ ] Vztor: batchPut returns unique keys on repeated insert\n", .{});
 
     const allocator = std.heap.page_allocator;
     const db_path = "testdb_vstore_unique_keys";
@@ -526,7 +526,7 @@ test "VStore: batchPut returns unique keys on repeated insert" {
     const vector_type = nmslib.DataType.SparseVector;
     const dist_type = nmslib.DistType.Float;
 
-    var store = try VStore.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
 
     const vectors = [_][]const nmslib.SparseElem{
         &[_]nmslib.SparseElem{
@@ -557,13 +557,13 @@ test "VStore: batchPut returns unique keys on repeated insert" {
     const cwd = std.fs.cwd();
     cwd.deleteTree(db_path) catch {};
 
-    std.debug.print("[x] VStore: batchPut returns unique keys on repeated insert\n", .{});
+    std.debug.print("[x] Vztor: batchPut returns unique keys on repeated insert\n", .{});
 }
 
 
 
-test "VStore: batchGet returns KeyNotFound for missing key" {
-    std.debug.print("[ ] VStore: batchGet returns KeyNotFound for missing key\n", .{});
+test "Vztor: batchGet returns KeyNotFound for missing key" {
+    std.debug.print("[ ] Vztor: batchGet returns KeyNotFound for missing key\n", .{});
     const allocator = std.heap.page_allocator;
     const db_path = "testdb_vstore_missing_key";
     const space_type = "negdotprod_sparse";
@@ -571,7 +571,7 @@ test "VStore: batchGet returns KeyNotFound for missing key" {
     const dist_type = nmslib.DistType.Float;
 
     {
-        var store = try VStore.init(allocator, db_path, space_type, vector_type, dist_type, 8);
+        var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 8);
 
         // Attempt to get a key that does not exist
         const res = store.batchGet("no-such-key");
@@ -583,19 +583,19 @@ test "VStore: batchGet returns KeyNotFound for missing key" {
 
     const cwd = std.fs.cwd();
     cwd.deleteTree(db_path) catch {};
-    std.debug.print("[x] VStore: batchGet returns KeyNotFound for missing key\n", .{});
+    std.debug.print("[x] Vztor: batchGet returns KeyNotFound for missing key\n", .{});
 }
 
 
-test "VStore: bulk 10 insert and retrieve" {
-    std.debug.print("[ ] VStore: bulk 10 insert and retrieve\n", .{});
+test "Vztor: bulk 10 insert and retrieve" {
+    std.debug.print("[ ] Vztor: bulk 10 insert and retrieve\n", .{});
     const allocator = std.heap.page_allocator;
     const db_path = "testdb_vstore_bulk10";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
     const dist_type = nmslib.DistType.Float;
 
-    var store = try VStore.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
     defer store.deinit() catch unreachable;
 
     const vectors = [_][]const nmslib.SparseElem{
@@ -636,11 +636,11 @@ test "VStore: bulk 10 insert and retrieve" {
 
     const cwd = std.fs.cwd();
     cwd.deleteTree(db_path) catch {};
-    std.debug.print("[x] VStore: bulk 10 insert and retrieve\n", .{});
+    std.debug.print("[x] Vztor: bulk 10 insert and retrieve\n", .{});
 }
 
-test "VStore: init tolerates empty IDX directory" {
-    std.debug.print("[ ] VStore: init tolerates empty IDX directory\n", .{});
+test "Vztor: init tolerates empty IDX directory" {
+    std.debug.print("[ ] Vztor: init tolerates empty IDX directory\n", .{});
     const allocator = std.heap.page_allocator;
     const db_path = "testdb_vstore_empty_idx";
     const space_type = "negdotprod_sparse";
@@ -656,7 +656,7 @@ test "VStore: init tolerates empty IDX directory" {
     try cwd.makePath(db_path ++ "/IDX");
 
     // This call used to fail when IDX existed but had no index.
-    var store = try VStore.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
     defer store.deinit() catch unreachable;
 
     // Store should be usable: do a simple put/get round-trip
@@ -672,5 +672,5 @@ test "VStore: init tolerates empty IDX directory" {
 
     // Cleanup
     cwd.deleteTree(db_path) catch {};
-    std.debug.print("[x] VStore: init tolerates empty IDX directory\n", .{});
+    std.debug.print("[x] Vztor: init tolerates empty IDX directory\n", .{});
 }
