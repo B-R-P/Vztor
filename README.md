@@ -1,10 +1,10 @@
-# Vztore
+# Vztor
 
 A high-performance key-value based vector database written in Zig.
 
 ## Overview
 
-Vztore combines the power of [NMSLIB](https://github.com/nmslib/nmslib) for efficient approximate nearest neighbor search with [LMDB](https://github.com/LMDB/lmdb) for persistent key-value storage. It provides a simple API for storing, retrieving, and searching vectors with associated metadata.
+Vztor combines the power of [NMSLIB](https://github.com/nmslib/nmslib) for efficient approximate nearest neighbor search with [LMDB](https://github.com/LMDB/lmdb) for persistent key-value storage. It provides a simple API for storing, retrieving, and searching vectors with associated metadata.
 
 ## Features
 
@@ -25,12 +25,12 @@ Dependencies are managed via Zig's package manager:
 
 ## Installation
 
-Add Vztore as a dependency in your `build.zig.zon`:
+Add Vztor as a dependency in your `build.zig.zon`:
 
 ```zig
 .dependencies = .{
-    .vztore = .{
-        .url = "https://github.com/B-R-P/Vztore/archive/refs/heads/main.tar.gz",
+    .vztor = .{
+        .url = "https://github.com/B-R-P/Vztor/archive/refs/heads/main.tar.gz",
         .hash = "...",
     },
 },
@@ -42,7 +42,7 @@ Add Vztore as a dependency in your `build.zig.zon`:
 
 ```zig
 const std = @import("std");
-const VStore = @import("vztore").VStore;
+const VStore = @import("vztor").VStore;
 const nmslib = @import("nmslib");
 
 pub fn main() !void {
@@ -155,7 +155,7 @@ Cleans up resources and closes the store. Returns an error union (`!void`).
 
 ## Architecture
 
-Vztore uses a dual-storage architecture:
+Vztor uses a dual-storage architecture:
 
 1. **NMSLIB Index**: Stores vectors for fast approximate nearest neighbor search using the HNSW algorithm
 2. **LMDBX Database**: Stores key-value mappings and metadata for persistence
