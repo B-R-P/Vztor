@@ -42,13 +42,13 @@ Add Vztor as a dependency in your `build.zig.zon`:
 
 ```zig
 const std = @import("std");
-const VStore = @import("vztor").VStore;
+const Vztor = @import("vztor").Vztor;
 const nmslib = @import("nmslib");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
     
-    var store = try VStore.init(
+    var store = try Vztor.init(
         allocator,
         "my_database",           // Database path
         "negdotprod_sparse",     // Space type
@@ -110,11 +110,11 @@ try store.save();
 
 ## API Reference
 
-### VStore
+### Vztor
 
 #### `init(allocator, comptime db_path, space_type, vector_type, dist_type, max_readers)`
 
-Initializes a new VStore instance or loads an existing one from disk.
+Initializes a new Vztor instance or loads an existing one from disk.
 
 - `allocator`: Memory allocator
 - `db_path`: Path to the database directory (comptime string)
