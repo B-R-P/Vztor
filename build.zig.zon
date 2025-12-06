@@ -63,7 +63,7 @@
         //},
         .nmslib = .{
             .url = "https://github.com/B-R-P/NMSLIB-ZIG/archive/refs/heads/main.tar.gz",
-            .hash = "nmslib-0.1.0-7XQ0QQJrDwBigBxLkzWxkEZJPBDCEI91mwm6fQtmEfu0",
+            .hash = "nmslib-0.1.0-7XQ0QQhrDwBnY5HGMLkeYOff-Kde4Hb8DVnubFBgmOe6",
         },
         .lmdbx = .{
             .url = "https://github.com/B-R-P/lmdbx-zig/archive/refs/heads/main.tar.gz",
