@@ -674,3 +674,142 @@ test "Vztor: init tolerates empty IDX directory" {
     cwd.deleteTree(db_path) catch {};
     std.debug.print("[x] Vztor: init tolerates empty IDX directory\n", .{});
 }
+
+test "Vztor: search returns correct nearest neighbors" {
+    std.debug.print("[ ] Vztor: search returns correct nearest neighbors\n", .{});
+
+    const allocator = std.heap.page_allocator;
+    const db_path = "testdb_vztor_search";
+    const space_type = "negdotprod_sparse";
+    const vector_type = nmslib.DataType.SparseVector;
+    const dist_type = nmslib.DistType.Float;
+    const cwd = std.fs.cwd();
+
+    cwd.deleteTree(db_path) catch {};
+
+    var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    defer store.deinit() catch {};
+
+    const vecA = [_]nmslib.SparseElem{ .{ .id = 1, .value = 1.0 } };
+    const vecB = [_]nmslib.SparseElem{ .{ .id = 1, .value = 0.5 } };
+    const vecC = [_]nmslib.SparseElem{ .{ .id = 2, .value = 1.0 } };
+
+    const vectors = [_][]const nmslib.SparseElem{ &vecA, &vecB, &vecC };
+    const payloads = [_][]const u8{ "A", "B", "C" };
+
+    const keys = try store.batchPut(&vectors, &payloads, null);
+    try std.testing.expect(keys.len == 3);
+
+    const query: nmslib.QueryPoint = .{ .SparseVector = &vecA };
+
+    const results = try store.search(query, 3);
+    try std.testing.expect(results.len >= 1);
+
+    // results[0].data is optional: unwrap before comparing
+    const first_data = results[0].data.?; 
+    try std.testing.expect(std.mem.eql(u8, first_data, "A"));
+
+    try store.deinit();
+    cwd.deleteTree(db_path) catch {};
+    std.debug.print("[x] Vztor: search returns correct nearest neighbors\n", .{});
+}
+
+test "Vztor: RNG persistence across restart (no duplicate auto-keys)" {
+    std.debug.print("[ ] Vztor: RNG persistence across restart\n", .{});
+
+    const allocator = std.heap.page_allocator;
+    const db_path = "testdb_vztor_rng";
+    const space_type = "negdotprod_sparse";
+    const vector_type = nmslib.DataType.SparseVector;
+    const dist_type = nmslib.DistType.Float;
+    const cwd = std.fs.cwd();
+
+    cwd.deleteTree(db_path) catch {};
+
+    const v0 = [_]nmslib.SparseElem{ .{ .id = 1, .value = 1.0 } };
+    const vectors = [_][]const nmslib.SparseElem{ &v0, &v0 };
+    const payloads = [_][]const u8{ "x", "y" };
+
+    // First run: generate two auto-keys
+    var store1 = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    const keys1 = try store1.batchPut(&vectors, &payloads, null);
+    try std.testing.expect(keys1.len == 2);
+
+    // COPY keys1 out of the store arena so they remain valid after deinit
+    var saved_keys1 = try std.heap.page_allocator.alloc([]const u8, keys1.len);
+    var i: usize = 0;
+    while (i < keys1.len) : (i += 1) {
+        saved_keys1[i] = try std.heap.page_allocator.dupe(u8, keys1[i]);
+    }
+
+    try store1.deinit();
+
+    // Second run (restart): generate two more auto-keys
+    var store2 = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    const keys2 = try store2.batchPut(&vectors, &payloads, null);
+    try std.testing.expect(keys2.len == 2);
+
+    // COPY keys2 as well before we deinit store2
+    var saved_keys2 = try std.heap.page_allocator.alloc([]const u8, keys2.len);
+    i = 0;
+    while (i < keys2.len) : (i += 1) {
+        saved_keys2[i] = try std.heap.page_allocator.dupe(u8, keys2[i]);
+    }
+
+    // Ensure there are no duplicates between the pre-restart and post-restart auto-keys.
+    for (saved_keys1) |k1| {
+        for (saved_keys2) |k2| {
+            try std.testing.expect(!std.mem.eql(u8, k1, k2));
+        }
+    }
+
+    try store2.deinit();
+    cwd.deleteTree(db_path) catch {};
+    std.debug.print("[x] Vztor: RNG persistence across restart\n", .{});
+}
+
+test "Vztor: get returns payload when index missing vector" {
+    std.debug.print("[ ] Vztor: get returns payload when index is missing vector\n", .{});
+
+    const allocator = std.heap.page_allocator;
+    const db_path = "testdb_vztor_missing_vector";
+    const space_type = "negdotprod_sparse";
+    const vector_type = nmslib.DataType.SparseVector;
+    const dist_type = nmslib.DistType.Float;
+    const cwd = std.fs.cwd();
+
+    cwd.deleteTree(db_path) catch {};
+
+    // Init store and insert a single item
+    var store_a = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    const v0 = [_]nmslib.SparseElem{ .{ .id = 42, .value = 1.0 } };
+    const vectors = [_][]const nmslib.SparseElem{ &v0 };
+    const payloads = [_][]const u8{ "payload-42" };
+
+    const keys = try store_a.batchPut(&vectors, &payloads, null);
+    try std.testing.expect(keys.len == 1);
+
+    // COPY the key out of the store arena before deinit
+    const saved_key = try std.heap.page_allocator.dupe(u8, keys[0]);
+
+    // Save and deinit to ensure index files are written
+    try store_a.save();
+    try store_a.deinit();
+
+    // Remove the on-disk IDX directory (simulate index missing/corrupt)
+    const idx_path = try std.fs.path.join(std.heap.page_allocator, &.{ db_path, "IDX" });
+    cwd.deleteTree(idx_path) catch {};
+    std.heap.page_allocator.free(idx_path);
+
+    // Re-init store: LMDB mappings still exist, but index will be fresh/empty
+    var store_b = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+
+    // batchGet should still return the payload even if the vector is unavailable
+    const got = try store_b.batchGet(saved_key);
+    try std.testing.expect(std.mem.eql(u8, got.data, "payload-42"));
+    try std.testing.expect(got.vector == null); // vector should be missing/none
+
+    try store_b.deinit();
+    cwd.deleteTree(db_path) catch {};
+    std.debug.print("[x] Vztor: get returns payload when index is missing vector\n", .{});
+}
