@@ -61,13 +61,13 @@
         //    // actually used.
         //    .lazy = false,
         //},
-        .lmdbx = .{
-            .url = "https://github.com/theseyan/lmdbx-zig/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "lmdbx-0.1.2-WlIvzjFVAwDUzL6W5PcOnaxpazqXl9wEyx0K0H0Gv_9R",
-        },
         .nmslib = .{
             .url = "https://github.com/B-R-P/NMSLIB-ZIG/archive/refs/heads/main.tar.gz",
             .hash = "nmslib-0.1.0-7XQ0QQJrDwBigBxLkzWxkEZJPBDCEI91mwm6fQtmEfu0",
+        },
+        .lmdbx = .{
+            .url = "https://github.com/B-R-P/lmdbx-zig/archive/refs/heads/main.tar.gz",
+            .hash = "lmdbx-0.1.2-WlIvzqFWAwAUF5IIBko___Bj2qKKVpLFDe9o6mL6O7x4",
         },
     },
     // Specifies the set of files and directories that are included in this package.
