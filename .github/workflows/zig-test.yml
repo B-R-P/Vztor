@@ -24,5 +24,8 @@ jobs:
       - name: Print Zig version
         run: zig version
 
+      - name: Clean Zig cache
+        run: rm -rf .zig-cache
+      
       - name: Run tests
         run: zig build test --debug-rt --summary all
