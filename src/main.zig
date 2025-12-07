@@ -7,12 +7,12 @@ const utils = @import("utils");
 
 
 
-const getResult = struct {
+const GetResult = struct {
     vector: ?nmslib.DataPoint,
     data: []const u8,
 };
 
-const searchResult = struct {
+const SearchResult = struct {
     key: []const u8,
     data: ?[]const u8,
     distance: f32
@@ -25,7 +25,7 @@ pub const Vztor = struct {
     arena: std.heap.ArenaAllocator,
     env: lmdbx.Environment,
     index: nmslib.Index,
-    indexPath: []const u8,
+    index_path: []const u8,
     counter: u32,
     rnd: std.Random,
     seed: u64,
@@ -142,10 +142,10 @@ pub const Vztor = struct {
         var seed: u64 = undefined;
         var counter: u32 = undefined;
         var rnd: std.Random = undefined;
-        if (try db_metadata.get("seed")) |strSeed| {
-            const strCounter = try db_metadata.get("random_counter") orelse "0";
-            counter = try std.fmt.parseInt(u32, strCounter, 10);
-            seed = try std.fmt.parseInt(u64, strSeed, 10);
+        if (try db_metadata.get("seed")) |str_seed| {
+            const str_counter = try db_metadata.get("random_counter") orelse "0";
+            counter = try std.fmt.parseInt(u32, str_counter, 10);
+            seed = try std.fmt.parseInt(u64, str_seed, 10);
             var prng = std.Random.DefaultPrng.init(seed);
             rnd = prng.random();
             for (0..counter) |_| {
@@ -156,10 +156,10 @@ pub const Vztor = struct {
             var prng = std.Random.DefaultPrng.init(seed);
             rnd = prng.random();
             counter = 0;
-            const strSeed = try std.fmt.allocPrint(arena_allocator, "{d}", .{ seed });
-            const strCounter = try std.fmt.allocPrint(arena_allocator, "{d}", .{ counter });
-            try db_metadata.set("seed", strSeed, .Create);
-            try db_metadata.set("random_counter", strCounter, .Create);
+            const str_seed = try std.fmt.allocPrint(arena_allocator, "{d}", .{ seed });
+            const str_counter = try std.fmt.allocPrint(arena_allocator, "{d}", .{ counter });
+            try db_metadata.set("seed", str_seed, .Create);
+            try db_metadata.set("random_counter", str_counter, .Create);
         }
 
         // HNSW / index parameters (kept on stack; index gets a copy of what it needs)
@@ -190,7 +190,7 @@ pub const Vztor = struct {
         store.index = index;
 
         // Full path to the index base file: "<db_path>/IDX/index"
-        store.indexPath = try std.fs.path.join(arena_allocator, &.{ db_path, "IDX", "index" });
+        store.index_path = try std.fs.path.join(arena_allocator, &.{ db_path, "IDX", "index" });
 
         return store;
     }
@@ -205,8 +205,8 @@ pub const Vztor = struct {
             errdefer txn.abort() catch unreachable;
 
             const db_metadata = try txn.database("metadata", .{});
-            const counterStr = try std.fmt.allocPrint(self.arena.allocator(), "{d}", .{ self.counter });
-            try db_metadata.set("random_counter", counterStr, .Update);
+            const counter_str = try std.fmt.allocPrint(self.arena.allocator(), "{d}", .{ self.counter });
+            try db_metadata.set("random_counter", counter_str, .Update);
 
             // Commit exactly once on the success path
             try txn.commit();
@@ -258,14 +258,14 @@ pub const Vztor = struct {
             }
         }
 
-        // numKeys is used by nmslib; allocate from stable allocator
-        var numKeys = try stable_alloc.alloc(i32, input_length);
+        // num_keys is used by nmslib; allocate from stable allocator
+        var num_keys = try stable_alloc.alloc(i32, input_length);
         for (0..input_length) |i| {
-            numKeys[i] = utils.stringToId32(nnkeys[i], self.seed);
+            num_keys[i] = utils.stringToId32(nnkeys[i], self.seed);
         }
 
         const start_idx = self.index.dataQty();
-        try self.index.addSparseBatch(vector, numKeys);
+        try self.index.addSparseBatch(vector, num_keys);
 
         const txn = try lmdbx.Transaction.init(self.env, .{ .mode = .ReadWrite });
         errdefer txn.abort() catch unreachable;
@@ -277,14 +277,14 @@ pub const Vztor = struct {
         for (0..input_length) |i| {
             // Numeric index key -> string
             var numeric_buf: [32]u8 align(4) = undefined;
-            const numericSKey = try std.fmt.bufPrint(&numeric_buf, "{d}", .{ numKeys[i] });
+            const numeric_skey = try std.fmt.bufPrint(&numeric_buf, "{d}", .{ num_keys[i] });
 
             // Build "pos:key" using the same stable allocator.
             // LMDB copies the value, so we don't need to free key_pos manually.
             const key_pos = try utils.key_pos_gen(stable_alloc, nnkeys[i], start_idx + i);
 
             try db_data.set(nnkeys[i], data[i], .Create);
-            try db_index_to_key.set(numericSKey, key_pos, .Create);
+            try db_index_to_key.set(numeric_skey, key_pos, .Create);
         }
 
         try txn.commit();
@@ -296,15 +296,15 @@ pub const Vztor = struct {
 
 
 
-    fn batchGet(self: *Self, key: []const u8) !getResult {
+    fn batchGet(self: *Self, key: []const u8) !GetResult {
         // Stable allocator for returned/copied values that must outlive this call
         const stable_alloc = self.arena.allocator();
 
-        const numericKey = utils.stringToId32(key, self.seed);
+        const numeric_key = utils.stringToId32(key, self.seed);
 
         // Use a small stack buffer for printing the numeric key (no heap alloc)
         var num_buf: [32]u8 align(4) = undefined;
-        const numberSkey = try std.fmt.bufPrint(&num_buf, "{d}", .{ numericKey });
+        const number_skey = try std.fmt.bufPrint(&num_buf, "{d}", .{ numeric_key });
 
         const txn = try lmdbx.Transaction.init(self.env, .{ .mode = .ReadOnly });
         defer txn.abort() catch unreachable;
@@ -314,7 +314,7 @@ pub const Vztor = struct {
 
         // Lookups -- handle optional/null returns explicitly
         const data_raw = try db_data.get(key) orelse return error.KeyNotFound;
-        const key_pos_raw = (try db_index_to_key.get(numberSkey)) orelse return error.KeyNotFound;
+        const key_pos_raw = (try db_index_to_key.get(number_skey)) orelse return error.KeyNotFound;
 
         const d = try utils.key_pos_parse(key_pos_raw);
         std.debug.assert(std.mem.eql(u8, key, d.key));
@@ -335,7 +335,7 @@ pub const Vztor = struct {
         // Copy data into stable allocator so it remains valid after txn ends
         const data_copy = try stable_alloc.dupe(u8, data_raw);
 
-        return getResult{
+        return GetResult{
             .vector = maybe_vector,
             .data = data_copy,
         };
@@ -344,7 +344,7 @@ pub const Vztor = struct {
 
 
 
-    fn search(self: *Self, vector: nmslib.QueryPoint, k: usize) ![]searchResult {
+    fn search(self: *Self, vector: nmslib.QueryPoint, k: usize) ![]SearchResult {
         
         // Stable allocator for returned results (owned by Vztor)
         const stable_alloc = self.arena.allocator();
@@ -352,7 +352,7 @@ pub const Vztor = struct {
         const knn_result = try self.index.knnQuery(vector, k);
 
         // Allocate the result array from stable allocator (returned to caller)
-        const final_result = try stable_alloc.alloc(searchResult, knn_result.used);
+        const final_result = try stable_alloc.alloc(SearchResult, knn_result.used);
 
         const txn = try lmdbx.Transaction.init(self.env, .{ .mode = .ReadOnly });
         defer txn.abort() catch unreachable;
@@ -367,10 +367,10 @@ pub const Vztor = struct {
             const id = knn_result.ids[i];
             const distance = knn_result.distances[i];
 
-            const numericKeySlice = try std.fmt.bufPrint(&num_buf, "{d}", .{ id });
+            const numeric_keySlice = try std.fmt.bufPrint(&num_buf, "{d}", .{ id });
 
             // Handle possible missing entries explicitly
-            const key_pos_raw = (try db_index_to_key.get(numericKeySlice)) orelse return error.KeyNotFound;
+            const key_pos_raw = (try db_index_to_key.get(numeric_keySlice)) orelse return error.KeyNotFound;
             const d = try utils.key_pos_parse(key_pos_raw);
 
             const data_raw = try db_data.get(d.key) orelse return error.KeyNotFound;
@@ -379,7 +379,7 @@ pub const Vztor = struct {
             const key_copy = try stable_alloc.dupe(u8, d.key);
             const data_copy = try stable_alloc.dupe(u8, data_raw);
 
-            final_result[i] = searchResult{
+            final_result[i] = SearchResult{
                 .key = key_copy,
                 .data = data_copy,
                 .distance = distance,
@@ -394,11 +394,11 @@ pub const Vztor = struct {
         const cwd = std.fs.cwd();
 
         // Ensure the *directory* containing the index exists *before* saving
-        const idx_dir = std.fs.path.dirname(self.indexPath) orelse ".";
+        const idx_dir = std.fs.path.dirname(self.index_path) orelse ".";
         try cwd.makePath(idx_dir);
 
         // Save index to disk using NMSLIB (to "<db_path>/IDX/index")
-        try self.index.save(self.indexPath, true);
+        try self.index.save(self.index_path, true);
 
         // Flush LMDB environment to disk
         try self.env.sync();
@@ -690,17 +690,17 @@ test "Vztor: search returns correct nearest neighbors" {
     var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
     defer store.deinit() catch {};
 
-    const vecA = [_]nmslib.SparseElem{ .{ .id = 1, .value = 1.0 } };
-    const vecB = [_]nmslib.SparseElem{ .{ .id = 1, .value = 0.5 } };
-    const vecC = [_]nmslib.SparseElem{ .{ .id = 2, .value = 1.0 } };
+    const vec_a = [_]nmslib.SparseElem{ .{ .id = 1, .value = 1.0 } };
+    const vec_b = [_]nmslib.SparseElem{ .{ .id = 1, .value = 0.5 } };
+    const vec_c = [_]nmslib.SparseElem{ .{ .id = 2, .value = 1.0 } };
 
-    const vectors = [_][]const nmslib.SparseElem{ &vecA, &vecB, &vecC };
+    const vectors = [_][]const nmslib.SparseElem{ &vec_a, &vec_b, &vec_c };
     const payloads = [_][]const u8{ "A", "B", "C" };
 
     const keys = try store.batchPut(&vectors, &payloads, null);
     try std.testing.expect(keys.len == 3);
 
-    const query: nmslib.QueryPoint = .{ .SparseVector = &vecA };
+    const query: nmslib.QueryPoint = .{ .SparseVector = &vec_a };
 
     const results = try store.search(query, 3);
     try std.testing.expect(results.len >= 1);
