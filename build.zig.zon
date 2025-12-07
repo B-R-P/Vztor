@@ -67,7 +67,7 @@
         },
         .lmdbx = .{
             .url = "https://github.com/B-R-P/lmdbx-zig/archive/refs/heads/main.tar.gz",
-            .hash = "lmdbx-0.1.2-WlIvzqFWAwAUF5IIBko___Bj2qKKVpLFDe9o6mL6O7x4",
+            .hash = "lmdbx-0.1.2-WlIvzgBWAwCKf99gHOSq5yFuP9VdDcuTc-HukAqDH55c",
         },
     },
     // Specifies the set of files and directories that are included in this package.
