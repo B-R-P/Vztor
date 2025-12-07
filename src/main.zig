@@ -417,41 +417,6 @@ pub const Vztor = struct {
 };
 
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    const max_readers:u32 = 1000;
-    const db_path:[]const u8 = "testDB";
-    const space_type:[]const u8 = "negdotprod_sparse"; 
-    const vector_type = nmslib.DataType.SparseVector;
-    const dist_type = nmslib.DistType.Float;
-    std.debug.assert(nmslib.isValidSpaceType(space_type));
-
-    var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, max_readers);
-    defer store.deinit() catch unreachable;
-
-    
-    const vectors = [_][]const nmslib.SparseElem{
-        &[_]nmslib.SparseElem{
-            .{ .id = 1, .value = 1.0 },
-            .{ .id = 5, .value = 2.0 },
-        },
-        &[_]nmslib.SparseElem{
-            .{ .id = 2, .value = 1.0 },
-            .{ .id = 10, .value = 3.0 },
-        },
-    };
-
-    const data = [_][]const u8{"Vector 1", "Vector2"};
-
-    const keys = try store.batchPut(&vectors, &data, null);
-    
-    std.debug.print("Key: {s}\n", .{keys[1]});
-    const r = try store.batchGet(keys[1]);
-    std.debug.print("Data: {s}\n", .{r.data});
-}
-
-
-
 test "Vztor: basic put/get/save and reload" {
     std.debug.print("[ ] Vztor: basic put/get/save and reload\n", .{});
 
