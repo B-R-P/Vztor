@@ -32,7 +32,6 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
     });
 
-    // const nmslib_lib = nmslib_dep.artifact("nmslib");
     const nmslib_mod = nmslib_dep.module("nmslib");
 
     const lib = b.addLibrary(.{
@@ -49,7 +48,7 @@ pub fn build(b: *std.Build) void {
     lib.root_module.addImport("lmdbx", lmdbx_dep.module("lmdbx"));
     lib.root_module.addImport("nmslib", nmslib_mod);
 
-
+    b.modules.put("vztor", lib.root_module) catch unreachable;
     b.installArtifact(lib);
 
     const run_cmd = b.addRunArtifact(lib);
