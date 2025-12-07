@@ -1,27 +1,28 @@
 # Vztor
 
-A high-performance key-value based vector database written in Zig.
+A key-value based vector database written in Zig.
 
 ## Overview
 
-Vztor combines the power of [NMSLIB](https://github.com/nmslib/nmslib) for efficient approximate nearest neighbor search with [LMDB](https://github.com/LMDB/lmdb) for persistent key-value storage. It provides a simple API for storing, retrieving, and searching vectors with associated metadata.
+Vztor combines the power of [NMSLIB](https://github.com/nmslib/nmslib) for efficient approximate nearest neighbor search with [libmdbx](https://libmdbx.dqdkfa.ru/) for persistent key-value storage. It provides a simple API for storing, retrieving, and searching vectors with associated metadata.
 
 ## Features
 
-- **Key-Value Storage**: Store vectors with associated data payloads
-- **Vector Search**: Fast approximate nearest neighbor search using HNSW algorithm
-- **Persistence**: Automatic persistence of both vectors and metadata to disk
-- **Sparse Vectors**: Support for sparse vector representations
-- **Auto-generated Keys**: Optional UUID generation for vector keys
-- **Batch Operations**: Efficient batch insert and retrieval operations
+* **Key-Value Storage**: Store vectors with associated data payloads
+* **Vector Search**: Fast approximate nearest neighbor search using HNSW algorithm
+* **Persistence**: Automatic persistence of both vectors and metadata to disk
+* **Sparse Vectors**: Support for sparse vector representations
+* **Auto-generated Keys**: Optional UUID generation for vector keys
+* **Batch Operations**: Efficient batch insert and retrieval operations
 
 ## Requirements
 
-- Zig 0.16.0 or later
+* Zig 0.15.2 or later
 
 Dependencies are managed via Zig's package manager:
-- [lmdbx-zig](https://github.com/theseyan/lmdbx-zig) - LMDBX wrapper for Zig
-- [nmslib-zig](https://github.com/B-R-P/nmslib-zig) - NMSLIB wrapper for Zig
+
+* [lmdbx-zig](https://github.com/B-R-P/lmdbx-zig) - LMDBX wrapper for Zig
+* [nmslib-zig](https://github.com/B-R-P/nmslib-zig) - NMSLIB wrapper for Zig
 
 ## Installation
 
@@ -30,10 +31,42 @@ Add Vztor as a dependency in your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .vztor = .{
-        .url = "https://github.com/B-R-P/Vztor/archive/refs/heads/main.tar.gz",
+        .url = "https://github.com/B-R-P/Vztor/archive/refs/tags/0.0.1.tar.gz",
         .hash = "...",
     },
 },
+```
+
+After declaring the dependency in `build.zig.zon`, wire it into your `build.zig` so the module becomes available to your executable:
+
+```zig
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const exe = b.addExecutable(.{
+        .name = "my-app",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const vztor_dep = b.dependency("vztor", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("vztor", vztor_dep.module("vztor"));
+
+    b.installArtifact(exe);
+}
+```
+
+Once added, the module can be imported anywhere in the code using:
+
+```zig
+const Vztor = @import("vztor").Vztor;
 ```
 
 ## Usage
@@ -104,7 +137,6 @@ for (search_results) |result| {
 ### Persist to Disk
 
 ```zig
-// Save the index and flush LMDBX to disk
 try store.save();
 ```
 
@@ -116,34 +148,34 @@ try store.save();
 
 Initializes a new Vztor instance or loads an existing one from disk.
 
-- `allocator`: Memory allocator
-- `db_path`: Path to the database directory (comptime string)
-- `space_type`: Vector space type (e.g., "negdotprod_sparse")
-- `vector_type`: Type of vectors (e.g., `SparseVector`)
-- `dist_type`: Distance type (e.g., `Float`)
-- `max_readers`: Maximum number of concurrent readers
+* `allocator`: Memory allocator
+* `db_path`: Path to the database directory (comptime string)
+* `space_type`: Vector space type (e.g., "negdotprod_sparse")
+* `vector_type`: Type of vectors (e.g., `SparseVector`)
+* `dist_type`: Distance type (e.g., `Float`)
+* `max_readers`: Maximum number of concurrent readers
 
-#### `batchPut(vectors, data, keys)` (internal)
+#### `batchPut(vectors, data, keys)`
 
 Inserts multiple vectors with associated data.
 
-- `vectors`: Array of sparse vectors
-- `data`: Array of data payloads
-- `keys`: Optional array of keys (auto-generated if null)
+* `vectors`: Array of sparse vectors
+* `data`: Array of data payloads
+* `keys`: Optional array of keys (auto-generated if null)
 
 Returns: Array of keys for the inserted vectors
 
-#### `batchGet(key)` (internal)
+#### `batchGet(key)`
 
 Retrieves a vector and its associated data by key.
 
-Returns: `getResult` struct with `vector` and `data` fields
+Returns: `GetResult` struct with `vector` and `data` fields
 
-#### `search(vector, k)` (internal)
+#### `search(vector, k)`
 
 Searches for the k nearest neighbors to the given vector.
 
-Returns: Array of `searchResult` structs with `key`, `data`, and `distance` fields
+Returns: Array of `SearchResult` structs with `key`, `data`, and `distance` fields
 
 #### `save()`
 
@@ -153,17 +185,14 @@ Persists the index and flushes LMDBX to disk.
 
 Cleans up resources and closes the store. Returns an error union (`!void`).
 
+Note: Copy `SearchResult` and `GetResult` before deinit for later use.
+
 ## Architecture
 
 Vztor uses a dual-storage architecture:
 
 1. **NMSLIB Index**: Stores vectors for fast approximate nearest neighbor search using the HNSW algorithm
 2. **LMDBX Database**: Stores key-value mappings and metadata for persistence
-
-Data is organized in three LMDBX databases:
-- `data`: Maps keys to data payloads
-- `index_to_key`: Maps numeric indices to key-position pairs
-- `metadata`: Stores configuration like random seeds
 
 ## Building
 
@@ -176,7 +205,3 @@ zig build
 ```bash
 zig build test
 ```
-
-## License
-
-See LICENSE file for details.
