@@ -118,9 +118,11 @@ const keys = try store.batchPut(&vectors, &data, null);
 ### Retrieve Vectors
 
 ```zig
-// Get vector and data by key
-const result = try store.batchGet(keys[0]);
-std.debug.print("Data: {s}\n", .{result.data});
+// Get data by keys
+const results = try store.batchGet(keys);
+for(results) |result|{
+    std.debug.print("Data: {s}\n", .{result.data});
+}
 ```
 
 ### Search Similar Vectors
