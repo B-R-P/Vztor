@@ -165,6 +165,8 @@ pub const Vztor = struct {
         // HNSW / index parameters (kept on stack; index gets a copy of what it needs)
         // IMPORTANT: use the *outer* allocator here (supports alloc/free), not the arena.
         var hnsw_params = try nmslib.Params.init(allocator);
+        defer hnsw_params.deinit();
+
         try hnsw_params.add("M", .{ .Int = 16 });
         try hnsw_params.add("efConstruction", .{ .Int = 200 });
         try hnsw_params.add("post", .{ .Int = 0 });
@@ -355,6 +357,7 @@ pub const Vztor = struct {
         const stable_alloc = self.arena.allocator();
 
         const knn_result = try self.index.knnQuery(vector, k);
+        defer knn_result.deinit();
 
         // Allocate the result array from stable allocator (returned to caller)
         const final_result = try stable_alloc.alloc(SearchResult, knn_result.used);
@@ -421,11 +424,10 @@ pub const Vztor = struct {
 
 };
 
-
 test "Vztor: basic put/get/save and reload" {
     std.debug.print("[ ] Vztor: basic put/get/save and reload\n", .{});
 
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vstore_zigtest";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
@@ -490,7 +492,7 @@ test "Vztor: basic put/get/save and reload" {
 test "Vztor: batchPut returns unique keys on repeated insert" {
     std.debug.print("[ ] Vztor: batchPut returns unique keys on repeated insert\n", .{});
 
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vstore_unique_keys";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
@@ -532,7 +534,7 @@ test "Vztor: batchPut returns unique keys on repeated insert" {
 
 test "Vztor: batchGet returns KeyNotFound for missing key" {
     std.debug.print("[ ] Vztor: batchGet returns KeyNotFound for missing key\n", .{});
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vstore_missing_key";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
@@ -541,7 +543,7 @@ test "Vztor: batchGet returns KeyNotFound for missing key" {
     {
         var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 8);
 
-        // Attempt to get a key that does not exist
+        // Attempt to get a key that does not exist (don't 'try' so we can capture the error union)
         const res = store.batchGet(&.{ "no-such-key" });
         try std.testing.expectError(error.KeyNotFound, res);
 
@@ -556,7 +558,7 @@ test "Vztor: batchGet returns KeyNotFound for missing key" {
 
 test "Vztor: bulk 10 insert and retrieve" {
     std.debug.print("[ ] Vztor: bulk 10 insert and retrieve\n", .{});
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vstore_bulk10";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
@@ -590,7 +592,10 @@ test "Vztor: bulk 10 insert and retrieve" {
         external_keys[i] = try allocator.dupe(u8, keys[i]);
     }
 
-    for (try store.batchGet(external_keys), payloads) |got, payload| {
+    // Fetch all keys in a single batch call and verify payloads in parallel
+    const got_results = try store.batchGet(external_keys);
+    try std.testing.expect(got_results.len == payloads.len);
+    for (got_results, payloads) |got, payload| {
         try std.testing.expect(std.mem.eql(u8, got.data, payload));
     }
 
@@ -607,7 +612,7 @@ test "Vztor: bulk 10 insert and retrieve" {
 
 test "Vztor: init tolerates empty IDX directory" {
     std.debug.print("[ ] Vztor: init tolerates empty IDX directory\n", .{});
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vstore_empty_idx";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
@@ -645,7 +650,7 @@ test "Vztor: init tolerates empty IDX directory" {
 test "Vztor: search returns correct nearest neighbors" {
     std.debug.print("[ ] Vztor: search returns correct nearest neighbors\n", .{});
 
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vztor_search";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
@@ -684,7 +689,7 @@ test "Vztor: search returns correct nearest neighbors" {
 test "Vztor: RNG persistence across restart (no duplicate auto-keys)" {
     std.debug.print("[ ] Vztor: RNG persistence across restart\n", .{});
 
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vztor_rng";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
@@ -703,10 +708,10 @@ test "Vztor: RNG persistence across restart (no duplicate auto-keys)" {
     try std.testing.expect(keys1.len == 2);
 
     // COPY keys1 out of the store arena so they remain valid after deinit
-    var saved_keys1 = try std.heap.page_allocator.alloc([]const u8, keys1.len);
+    var saved_keys1 = try allocator.alloc([]const u8, keys1.len);
     var i: usize = 0;
     while (i < keys1.len) : (i += 1) {
-        saved_keys1[i] = try std.heap.page_allocator.dupe(u8, keys1[i]);
+        saved_keys1[i] = try allocator.dupe(u8, keys1[i]);
     }
 
     try store1.deinit();
@@ -717,10 +722,10 @@ test "Vztor: RNG persistence across restart (no duplicate auto-keys)" {
     try std.testing.expect(keys2.len == 2);
 
     // COPY keys2 as well before we deinit store2
-    var saved_keys2 = try std.heap.page_allocator.alloc([]const u8, keys2.len);
+    var saved_keys2 = try allocator.alloc([]const u8, keys2.len);
     i = 0;
     while (i < keys2.len) : (i += 1) {
-        saved_keys2[i] = try std.heap.page_allocator.dupe(u8, keys2[i]);
+        saved_keys2[i] = try allocator.dupe(u8, keys2[i]);
     }
 
     // Ensure there are no duplicates between the pre-restart and post-restart auto-keys.
@@ -730,15 +735,21 @@ test "Vztor: RNG persistence across restart (no duplicate auto-keys)" {
         }
     }
 
+    // Free saved key copies and arrays
+    for (0..saved_keys1.len) |j| allocator.free(saved_keys1[j]);
+    allocator.free(saved_keys1);
+    for (0..saved_keys2.len) |j| allocator.free(saved_keys2[j]);
+    allocator.free(saved_keys2);
+
     try store2.deinit();
     cwd.deleteTree(db_path) catch {};
     std.debug.print("[x] Vztor: RNG persistence across restart\n", .{});
 }
 
 test "Vztor: get returns payload when index missing vector" {
-    std.debug.print("[ ] Vztor: get returns payload when index is missing vector\n", .{});
+    std.debug.print("[ ] Vztor: get returns payload when index missing vector\n", .{});
 
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vztor_missing_vector";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
@@ -757,16 +768,16 @@ test "Vztor: get returns payload when index missing vector" {
     try std.testing.expect(keys.len == 1);
 
     // COPY the key out of the store arena before deinit
-    const saved_key = try std.heap.page_allocator.dupe(u8, keys[0]);
+    const saved_key = try allocator.dupe(u8, keys[0]);
 
     // Save and deinit to ensure index files are written
     try store_a.save();
     try store_a.deinit();
 
     // Remove the on-disk IDX directory (simulate index missing/corrupt)
-    const idx_path = try std.fs.path.join(std.heap.page_allocator, &.{ db_path, "IDX" });
+    const idx_path = try std.fs.path.join(testing.allocator, &.{ db_path, "IDX" });
     cwd.deleteTree(idx_path) catch {};
-    std.heap.page_allocator.free(idx_path);
+    testing.allocator.free(idx_path);
 
     // Re-init store: LMDB mappings still exist, but index will be fresh/empty
     var store_b = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
@@ -777,6 +788,9 @@ test "Vztor: get returns payload when index missing vector" {
     try std.testing.expect(std.mem.eql(u8, got.data, "payload-42"));
     try std.testing.expect(got.vector == null); // vector should be missing/none
 
+    // Free saved key copy
+    allocator.free(saved_key);
+
     try store_b.deinit();
     cwd.deleteTree(db_path) catch {};
     std.debug.print("[x] Vztor: get returns payload when index is missing vector\n", .{});
@@ -785,7 +799,7 @@ test "Vztor: get returns payload when index missing vector" {
 test "Vztor: batchGet handles multiple keys in one call" {
     std.debug.print("[ ] Vztor: batchGet handles multiple keys in one call\n", .{});
 
-    const allocator = std.heap.page_allocator;
+    const allocator = testing.allocator;
     const db_path = "testdb_vstore_batch_multiget";
     const space_type = "negdotprod_sparse";
     const vector_type = nmslib.DataType.SparseVector;
