@@ -165,11 +165,11 @@ Inserts multiple vectors with associated data.
 
 Returns: Array of keys for the inserted vectors
 
-#### `batchGet(key)`
+#### `batchGet(keys)`
 
-Retrieves a vector and its associated data by key.
+Retrieves vectors and its associated data by keys.
 
-Returns: `GetResult` struct with `vector` and `data` fields
+Returns: Array of `GetResult` struct with `vector` and `data` fields
 
 #### `search(vector, k)`
 
