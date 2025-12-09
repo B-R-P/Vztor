@@ -294,17 +294,9 @@ pub const Vztor = struct {
     }
 
 
-
-
-    fn batchGet(self: *Self, key: []const u8) !GetResult {
+    fn batchGet(self: *Self, keys: []const []const u8) ![]GetResult {
         // Stable allocator for returned/copied values that must outlive this call
         const stable_alloc = self.arena.allocator();
-
-        const numeric_key = utils.stringToId32(key, self.seed);
-
-        // Use a small stack buffer for printing the numeric key (no heap alloc)
-        var num_buf: [32]u8 align(4) = undefined;
-        const number_skey = try std.fmt.bufPrint(&num_buf, "{d}", .{ numeric_key });
 
         const txn = try lmdbx.Transaction.init(self.env, .{ .mode = .ReadOnly });
         defer txn.abort() catch unreachable;
@@ -312,36 +304,49 @@ pub const Vztor = struct {
         const db_data = try txn.database("data", .{});
         const db_index_to_key = try txn.database("index_to_key", .{});
 
-        // Lookups -- handle optional/null returns explicitly
-        const data_raw = try db_data.get(key) orelse return error.KeyNotFound;
-        const key_pos_raw = (try db_index_to_key.get(number_skey)) orelse return error.KeyNotFound;
+        // Allocate results array in stable allocator
+        const n = keys.len;
+        var results_ptr = try stable_alloc.alloc(GetResult, n);
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            const key = keys[i];
 
-        const d = try utils.key_pos_parse(key_pos_raw);
-        std.debug.assert(std.mem.eql(u8, key, d.key));
+            // Lookups -- handle optional/null returns explicitly
+            const data_raw = try db_data.get(key) orelse return error.KeyNotFound;
+            // convert numeric key for index lookup
+            const numeric_key = utils.stringToId32(key, self.seed);
 
-        // Try to recover the vector from the index if possible.
-        // If the index was recreated after a failed load, d.pos may be out of range.
-        var maybe_vector: ?nmslib.DataPoint = null;
+            // Use a small stack buffer for printing the numeric key (no heap alloc)
+            var num_buf: [32]u8 align(4) = undefined;
+            const number_skey = try std.fmt.bufPrint(&num_buf, "{d}", .{ numeric_key });
 
-        const qty = self.index.dataQty();
-        if (d.pos < qty) {
-            // getDataPoint can still fail (e.g. DataNotLoaded), so be defensive.
-            maybe_vector = self.index.getDataPoint(d.pos) catch |err| switch (err) {
-                error.InvalidArgument, error.DataNotLoaded => null,
-                else => return err,
+            const key_pos_raw = (try db_index_to_key.get(number_skey)) orelse return error.KeyNotFound;
+
+            const d = try utils.key_pos_parse(key_pos_raw);
+            std.debug.assert(std.mem.eql(u8, key, d.key));
+
+            // Try to recover the vector from the index if possible.
+            var maybe_vector: ?nmslib.DataPoint = null;
+            const qty = self.index.dataQty();
+            if (d.pos < qty) {
+                // getDataPoint can still fail (e.g. DataNotLoaded), so be defensive.
+                maybe_vector = self.index.getDataPoint(d.pos) catch |err| switch (err) {
+                    error.InvalidArgument, error.DataNotLoaded => null,
+                    else => return err,
+                };
+            }
+
+            // Copy data into stable allocator so it remains valid after txn ends
+            const data_copy = try stable_alloc.dupe(u8, data_raw);
+
+            results_ptr[i] = GetResult{
+                .vector = maybe_vector,
+                .data = data_copy,
             };
         }
 
-        // Copy data into stable allocator so it remains valid after txn ends
-        const data_copy = try stable_alloc.dupe(u8, data_raw);
-
-        return GetResult{
-            .vector = maybe_vector,
-            .data = data_copy,
-        };
+        return results_ptr[0..n];
     }
-
-
 
 
     fn search(self: *Self, vector: nmslib.QueryPoint, k: usize) ![]SearchResult {
@@ -453,7 +458,8 @@ test "Vztor: basic put/get/save and reload" {
     const key_copy = try allocator.dupe(u8, keys[1]);
 
     // Verify batchGet while the store is still live
-    const got = try store.batchGet(keys[1]);
+    const got_arr = try store.batchGet(&.{ keys[1] });
+    const got = got_arr[0];
     try std.testing.expect(std.mem.eql(u8, got.data, "Vector 2"));
 
     // Persist index + LMDB to disk explicitly
@@ -466,7 +472,8 @@ test "Vztor: basic put/get/save and reload" {
     var reopened = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
 
     // Re-fetch using the copied key (not owned by the arena)
-    const got2 = try reopened.batchGet(key_copy);
+    const got2_arr = try reopened.batchGet(&.{ key_copy });
+    const got2 = got2_arr[0];
     try std.testing.expect(std.mem.eql(u8, got2.data, "Vector 2"));
 
     // Close reopened store
@@ -479,8 +486,6 @@ test "Vztor: basic put/get/save and reload" {
 
     std.debug.print("[x] Vztor: basic put/get/save and reload\n", .{});
 }
-
-
 
 test "Vztor: batchPut returns unique keys on repeated insert" {
     std.debug.print("[ ] Vztor: batchPut returns unique keys on repeated insert\n", .{});
@@ -525,8 +530,6 @@ test "Vztor: batchPut returns unique keys on repeated insert" {
     std.debug.print("[x] Vztor: batchPut returns unique keys on repeated insert\n", .{});
 }
 
-
-
 test "Vztor: batchGet returns KeyNotFound for missing key" {
     std.debug.print("[ ] Vztor: batchGet returns KeyNotFound for missing key\n", .{});
     const allocator = std.heap.page_allocator;
@@ -539,7 +542,7 @@ test "Vztor: batchGet returns KeyNotFound for missing key" {
         var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 8);
 
         // Attempt to get a key that does not exist
-        const res = store.batchGet("no-such-key");
+        const res = store.batchGet(&.{ "no-such-key" });
         try std.testing.expectError(error.KeyNotFound, res);
 
         // Cleanly deinit the store before deleting files
@@ -550,7 +553,6 @@ test "Vztor: batchGet returns KeyNotFound for missing key" {
     cwd.deleteTree(db_path) catch {};
     std.debug.print("[x] Vztor: batchGet returns KeyNotFound for missing key\n", .{});
 }
-
 
 test "Vztor: bulk 10 insert and retrieve" {
     std.debug.print("[ ] Vztor: bulk 10 insert and retrieve\n", .{});
@@ -588,9 +590,8 @@ test "Vztor: bulk 10 insert and retrieve" {
         external_keys[i] = try allocator.dupe(u8, keys[i]);
     }
 
-    for (0..keys.len) |i| {
-        const got = try store.batchGet(external_keys[i]);
-        try std.testing.expect(std.mem.eql(u8, got.data, payloads[i]));
+    for (try store.batchGet(external_keys), payloads) |got, payload| {
+        try std.testing.expect(std.mem.eql(u8, got.data, payload));
     }
 
     // Cleanup external keys and DB dir
@@ -632,7 +633,8 @@ test "Vztor: init tolerates empty IDX directory" {
     const keys = try store.batchPut(&vectors, &payloads, null);
     try std.testing.expect(keys.len == 1);
 
-    const got = try store.batchGet(keys[0]);
+    const got_arr = try store.batchGet(&.{ keys[0] });
+    const got = got_arr[0];
     try std.testing.expect(std.mem.eql(u8, got.data, "hello"));
 
     // Cleanup
@@ -770,11 +772,66 @@ test "Vztor: get returns payload when index missing vector" {
     var store_b = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
 
     // batchGet should still return the payload even if the vector is unavailable
-    const got = try store_b.batchGet(saved_key);
+    const got_arr = try store_b.batchGet(&.{ saved_key });
+    const got = got_arr[0];
     try std.testing.expect(std.mem.eql(u8, got.data, "payload-42"));
     try std.testing.expect(got.vector == null); // vector should be missing/none
 
     try store_b.deinit();
     cwd.deleteTree(db_path) catch {};
     std.debug.print("[x] Vztor: get returns payload when index is missing vector\n", .{});
+}
+
+test "Vztor: batchGet handles multiple keys in one call" {
+    std.debug.print("[ ] Vztor: batchGet handles multiple keys in one call\n", .{});
+
+    const allocator = std.heap.page_allocator;
+    const db_path = "testdb_vstore_batch_multiget";
+    const space_type = "negdotprod_sparse";
+    const vector_type = nmslib.DataType.SparseVector;
+    const dist_type = nmslib.DistType.Float;
+    const cwd = std.fs.cwd();
+
+    // Clean any leftovers from previous runs
+    cwd.deleteTree(db_path) catch {};
+
+    var store = try Vztor.init(allocator, db_path, space_type, vector_type, dist_type, 16);
+    defer store.deinit() catch unreachable;
+
+    // Prepare three simple sparse vectors and payloads
+    const vec_a = [_]nmslib.SparseElem{ .{ .id = 1, .value = 1.0 } };
+    const vec_b = [_]nmslib.SparseElem{ .{ .id = 2, .value = 2.0 } };
+    const vec_c = [_]nmslib.SparseElem{ .{ .id = 3, .value = 3.0 } };
+
+    const vectors = [_][]const nmslib.SparseElem{
+        &vec_a,
+        &vec_b,
+        &vec_c,
+    };
+
+    const payloads = [_][]const u8{
+        "A-payload",
+        "B-payload",
+        "C-payload",
+    };
+
+    // Insert all three points
+    const keys = try store.batchPut(&vectors, &payloads, null);
+    try std.testing.expect(keys.len == 3);
+
+    // Batch-get two of them in a single call (non-contiguous indices to assert order)
+    const results = try store.batchGet(&.{ keys[0], keys[2] });
+    try std.testing.expect(results.len == 2);
+
+    // Verify payloads match the correct keys in the same order
+    try std.testing.expect(std.mem.eql(u8, results[0].data, payloads[0]));
+    try std.testing.expect(std.mem.eql(u8, results[1].data, payloads[2]));
+
+    // Optional: vectors should be present (index built in-memory)
+    try std.testing.expect(results[0].vector != null);
+    try std.testing.expect(results[1].vector != null);
+
+    // Cleanup DB directory
+    cwd.deleteTree(db_path) catch {};
+    std.debug.print("[x] Vztor: batchGet handles multiple keys in one call\n", .{});
 }
